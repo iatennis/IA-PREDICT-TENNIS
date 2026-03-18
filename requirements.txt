@@ -1,10 +1,1 @@
-streamlit==1.32.0
-xgboost==2.0.3
-pandas==2.2.1
-numpy==1.26.4
-scikit-learn==1.4.1
-rapidfuzz==3.6.1
-firebase-admin==6.4.0
-requests==2.31.0
-python-dotenv==1.0.1
-plotly==5.19.0
+python -c "from huggingface_hub import HfApi; api = HfApi(); api.upload_file(path_or_fileobj='requirements.txt', path_in_repo='requirements.txt', repo_id='Fulgence10/Tennis-IA', repo_type='space')"
