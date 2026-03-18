@@ -3,272 +3,125 @@
 # ============================================================
 import streamlit as st
 import pandas as pd
-import numpy as np
 import requests
 import os
-import pickle
-from datetime import datetime, timedelta
+from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
 API_KEY  = os.getenv("ALLSPORTS_API_KEY")
 BASE_URL = "https://apiv2.allsportsapi.com/tennis/"
-DOSSIER  = os.path.join(os.path.dirname(__file__), '..', 'data')
-
-# ============================================================
-# VÉRIFICATION DATE DERNIÈRE MAJ
-# ============================================================
-def get_derniere_maj():
-    fichier = os.path.join(DOSSIER, 'derniere_maj.txt')
-    if os.path.exists(fichier):
-        with open(fichier, 'r') as f:
-            return f.read().strip()
-    return "Jamais"
-
-def set_derniere_maj():
-    fichier = os.path.join(DOSSIER, 'derniere_maj.txt')
-    date    = datetime.now().strftime('%Y-%m-%d %H:%M')
-    with open(fichier, 'w') as f:
-        f.write(date)
-    return date
-
-def besoin_maj():
-    derniere = get_derniere_maj()
-    if derniere == "Jamais":
-        return True
-    try:
-        d = datetime.strptime(derniere, '%Y-%m-%d %H:%M')
-        return (datetime.now() - d).days >= 3
-    except:
-        return True
-
-# ============================================================
-# COLLECTE NOUVEAUX MATCHS VIA API
-# ============================================================
-def collecter_nouveaux_matchs(date_debut, date_fin):
-    """Collecte les nouveaux matchs ATP/WTA via API."""
-    circuits = ['Atp Singles', 'Wta Singles',
-                'Challenger Men Singles',
-                'Challenger Women Singles']
-    matchs = []
-    barre  = st.progress(0)
-    total  = len(circuits)
-
-    for i, circuit in enumerate(circuits):
-        try:
-            res = requests.get(BASE_URL, params={
-                "met"    : "Fixtures",
-                "APIkey" : API_KEY,
-                "from"   : date_debut,
-                "to"     : date_fin,
-            }, timeout=15)
-            if res.status_code == 200:
-                data = res.json()
-                if data.get("success") == 1:
-                    matchs.extend(
-                        data.get("result", [])
-                    )
-        except Exception as e:
-            st.warning(f"⚠️ Erreur {circuit} : {e}")
-        barre.progress((i + 1) / total)
-
-    return matchs
-
-# ============================================================
-# TRAITEMENT NOUVEAUX MATCHS
-# ============================================================
-def traiter_nouveaux_matchs(matchs_api):
-    """Convertit les matchs API en DataFrame unifié."""
-    rows = []
-    for m in matchs_api:
-        if m.get('event_status') != 'Finished':
-            continue
-        winner = m.get('event_winner', '')
-        if 'first' in str(winner).lower():
-            winner_name = m.get('event_first_player', '')
-            loser_name  = m.get('event_second_player', '')
-        else:
-            winner_name = m.get('event_second_player', '')
-            loser_name  = m.get('event_first_player', '')
-
-        rows.append({
-            'tourney_name' : m.get('league_name', ''),
-            'tourney_date' : m.get('event_date', ''),
-            'surface'      : 'Hard',
-            'round'        : m.get('league_round', ''),
-            'winner_name'  : winner_name,
-            'loser_name'   : loser_name,
-            'score'        : m.get('event_final_result', ''),
-            'circuit'      : 'ATP',
-            'genre'        : 'M',
-            'type'         : 'Singles',
-        })
-
-    return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 # ============================================================
 # PAGE MISE À JOUR
 # ============================================================
 def page_mise_a_jour(modeles, df_base):
-    st.title("🔄 Mise à jour des données")
+    st.title("🔄 Mise à jour")
     st.markdown("---")
 
-    # ── Statut ──
-    derniere = get_derniere_maj()
-    maj_requise = besoin_maj()
+    st.subheader("📡 Statut de la connexion API")
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2 = st.columns(2)
     with col1:
-        st.metric("📅 Dernière MAJ", derniere)
+        if API_KEY:
+            st.success(f"✅ Clé API trouvée : {API_KEY[:10]}...")
+        else:
+            st.error("❌ Clé API manquante — vérifie le fichier .env")
+
     with col2:
-        st.metric(
-            "⏰ Fréquence recommandée",
-            "Tous les 3 jours"
-        )
-    with col3:
-        if maj_requise:
-            st.metric("🔔 Statut", "⚠️ MAJ recommandée")
-        else:
-            st.metric("✅ Statut", "À jour")
+        if st.button("🔍 Tester la connexion API"):
+            try:
+                r = requests.get(BASE_URL, params={
+                    "met"    : "Fixtures",
+                    "APIkey" : API_KEY,
+                    "from"   : datetime.now().strftime('%Y-%m-%d'),
+                    "to"     : datetime.now().strftime('%Y-%m-%d'),
+                }, timeout=10)
+                if r.status_code == 200:
+                    data = r.json()
+                    if data.get("success") == 1:
+                        nb = len(data.get("result", []))
+                        st.success(f"✅ Connexion OK — {nb} matchs trouvés aujourd'hui")
+                    else:
+                        st.error(f"❌ Erreur API : {data.get('error', 'Inconnue')}")
+                else:
+                    st.error(f"❌ Erreur HTTP : {r.status_code}")
+            except Exception as e:
+                st.error(f"❌ Erreur de connexion : {e}")
 
     st.markdown("---")
 
-    # ── Option 1 : MAJ via API ──
-    st.subheader("🌐 Option 1 — Mise à jour via API")
+    st.subheader("📊 Statut de la base de données")
 
-    col_d1, col_d2 = st.columns(2)
-    with col_d1:
-        date_debut = st.date_input(
-            "Date de début",
-            value=datetime.now() - timedelta(days=3)
-        )
-    with col_d2:
-        date_fin = st.date_input(
-            "Date de fin",
-            value=datetime.now()
-        )
-
-    if st.button(
-        "🔄 Lancer la mise à jour API",
-        type="primary",
-        width='stretch'
-    ):
-        with st.spinner("⏳ Collecte des nouveaux matchs..."):
-            matchs = collecter_nouveaux_matchs(
-                str(date_debut), str(date_fin)
-            )
-
-        if matchs:
-            df_new = traiter_nouveaux_matchs(matchs)
-            st.success(
-                f"✅ {len(df_new)} nouveaux matchs collectés !"
-            )
-
-            if len(df_new) > 0:
-                st.dataframe(
-                    df_new.head(10),
-                    width='stretch'
-                )
-
-                if st.button(
-                    "💾 Intégrer dans la base",
-                    width='stretch'
-                ):
-                    chemin_base = os.path.join(
-                        DOSSIER, 'BASE_FEATURES.csv'
-                    )
-                    df_base_updated = pd.concat(
-                        [df_base, df_new],
-                        ignore_index=True
-                    )
-                    df_base_updated.to_csv(
-                        chemin_base, index=False
-                    )
-                    set_derniere_maj()
-                    st.success(
-                        f"✅ Base mise à jour ! "
-                        f"{len(df_base_updated):,} matchs total"
-                    )
-                    st.cache_data.clear()
-                    st.rerun()
+    col_b1, col_b2, col_b3 = st.columns(3)
+    with col_b1:
+        st.metric("🎾 Matchs en base", "830 906")
+    with col_b2:
+        st.metric("📅 Dernière mise à jour", "2026")
+    with col_b3:
+        if df_base is not None:
+            st.metric("📁 CSV chargé", f"{len(df_base):,} lignes")
         else:
-            st.warning(
-                "⚠️ Aucun nouveau match trouvé "
-                "pour cette période"
-            )
+            st.metric("📁 CSV chargé", "Non disponible")
 
     st.markdown("---")
 
-    # ── Option 2 : Upload CSV ──
-    st.subheader("📁 Option 2 — Upload fichier CSV")
-    st.info(
-        "Upload un fichier CSV avec les colonnes : "
-        "winner_name, loser_name, tourney_date, "
-        "surface, score, tourney_name"
-    )
+    st.subheader("🤖 Statut des modèles IA")
+
+    col_m1, col_m2, col_m3 = st.columns(3)
+    with col_m1:
+        st.metric("🏆 Modèle Vainqueur", f"{modeles.get('acc_win', 0)*100:.1f}%")
+    with col_m2:
+        st.metric("🔢 Modèle Nb Sets", f"{modeles.get('acc_sets', 0)*100:.1f}%")
+    with col_m3:
+        st.metric("⚖️ Modèle Handicap", f"{modeles.get('acc_handi', 0)*100:.1f}%")
+
+    st.markdown("---")
+
+    st.subheader("⬆️ Importer de nouveaux matchs")
+    st.info("📁 Importez un fichier CSV de nouveaux matchs pour enrichir la base de données")
 
     fichier = st.file_uploader(
         "Choisir un fichier CSV",
         type=['csv'],
-        key="upload_maj"
+        help="Le fichier doit contenir les colonnes : winner_name, loser_name, surface, tourney_date, score"
     )
 
     if fichier:
-        df_upload = pd.read_csv(fichier)
-        st.success(
-            f"✅ {len(df_upload)} matchs dans le fichier"
-        )
-        st.dataframe(
-            df_upload.head(5),
-            width='stretch'
-        )
+        try:
+            df_new = pd.read_csv(fichier)
+            st.success(f"✅ {len(df_new)} matchs importés !")
+            st.dataframe(df_new.head(5), hide_index=True, use_container_width=True)
 
-        col_u1, col_u2 = st.columns(2)
-        with col_u1:
-            st.write("**Colonnes détectées :**")
-            for col in df_upload.columns:
-                st.write(f"• {col}")
+            col_imp1, col_imp2 = st.columns(2)
+            with col_imp1:
+                st.metric("📋 Nouveaux matchs", len(df_new))
+            with col_imp2:
+                colonnes_requises = ['winner_name', 'loser_name', 'surface', 'tourney_date']
+                colonnes_ok = all(c in df_new.columns for c in colonnes_requises)
+                if colonnes_ok:
+                    st.success("✅ Format correct")
+                else:
+                    manquantes = [c for c in colonnes_requises if c not in df_new.columns]
+                    st.error(f"❌ Colonnes manquantes : {manquantes}")
 
-        with col_u2:
-            if st.button(
-                "💾 Intégrer dans la base",
-                key="btn_integrer_csv",
-                width='stretch'
-            ):
-                chemin_base = os.path.join(
-                    DOSSIER, 'BASE_FEATURES.csv'
-                )
-                df_base_updated = pd.concat(
-                    [df_base, df_upload],
-                    ignore_index=True
-                )
-                df_base_updated.to_csv(
-                    chemin_base, index=False
-                )
-                set_derniere_maj()
-                st.success(
-                    f"✅ {len(df_upload)} matchs intégrés ! "
-                    f"Total : {len(df_base_updated):,}"
-                )
-                st.cache_data.clear()
-                st.rerun()
+        except Exception as e:
+            st.error(f"❌ Erreur lors de la lecture : {e}")
 
     st.markdown("---")
 
-    # ── Statut base actuelle ──
-    st.subheader("📊 Statut de la base actuelle")
-    col_b1, col_b2, col_b3 = st.columns(3)
-    with col_b1:
-        st.metric("📋 Total matchs", f"{len(df_base):,}")
-    with col_b2:
-        dates = pd.to_datetime(
-            df_base['tourney_date'], errors='coerce'
-        ).dropna()
-        if len(dates) > 0:
-            st.metric(
-                "📅 Dernier match",
-                str(dates.max())[:10]
-            )
-    with col_b3:
-        nb_joueurs = len(modeles.get('elo_final', {}))
-        st.metric("👤 Joueurs", f"{nb_joueurs:,}")
+    st.subheader("ℹ️ Instructions")
+    st.markdown("""
+    **Pour mettre à jour les modèles :**
+    1. Importez un CSV avec les nouveaux matchs
+    2. Vérifiez que le format est correct
+    3. Lancez le réentraînement depuis votre PC local
+    4. Uploadez le nouveau fichier `modeles_tennis_v2.pkl`
+
+    **Format CSV requis :**
+    - `winner_name` — Nom du vainqueur
+    - `loser_name` — Nom du perdant
+    - `surface` — Hard / Clay / Grass
+    - `tourney_date` — Date au format YYYY-MM-DD
+    - `score` — Score du match (ex: 6-3 6-4)
+    """)

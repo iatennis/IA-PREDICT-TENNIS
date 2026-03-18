@@ -69,13 +69,11 @@ def traiter_matchs(matchs_raw, filtre_circuit="Tous",
     if df.empty:
         return df
 
-    # Filtre circuit
     if filtre_circuit != "Tous":
         df = df[df['Circuit'].str.contains(
             filtre_circuit, case=False, na=False
         )]
 
-    # Filtre statut
     if filtre_statut == "À venir":
         df = df[df['statut_low'].isin(
             ['', 'notstarted', 'scheduled', 'ns']
@@ -96,7 +94,6 @@ def page_matchs_jour(modeles, df_base):
     st.title("📅 Matchs du jour")
     st.markdown("---")
 
-    # ── Filtres ──
     col1, col2, col3, col4 = st.columns([2, 2, 2, 1])
     with col1:
         date_choisie = st.date_input(
@@ -115,57 +112,32 @@ def page_matchs_jour(modeles, df_base):
         )
     with col4:
         st.markdown("<br>", unsafe_allow_html=True)
-        charger = st.button(
-            "🔄 Charger",
-            type="primary",
-            width='stretch'
-        )
+        charger = st.button("🔄 Charger", type="primary")
 
-    # Bouton prédire tous
-    predire_tous = st.button(
-        "⚡ Prédire TOUS les matchs automatiquement",
-        width='stretch'
-    )
+    predire_tous = st.button("⚡ Prédire TOUS les matchs automatiquement")
 
     st.markdown("---")
 
-    # ── Chargement ──
     if charger or predire_tous or st.session_state.get('auto_charger'):
         st.session_state['auto_charger'] = False
         date_str     = str(date_choisie)
         date_str_fin = str(date_choisie + timedelta(days=1))
 
-        with st.spinner(f"⏳ Chargement des matchs..."):
-            # Utilise la clé depuis .env
+        with st.spinner("⏳ Chargement des matchs..."):
             key = os.getenv("ALLSPORTS_API_KEY")
-            matchs_raw = get_matchs_periode(
-                date_str, date_str, key
-            )
-            # Si rien aujourd'hui → prend demain aussi
+            matchs_raw = get_matchs_periode(date_str, date_str, key)
             if not matchs_raw:
-                matchs_raw = get_matchs_periode(
-                    date_str, date_str_fin, key
-                )
+                matchs_raw = get_matchs_periode(date_str, date_str_fin, key)
 
-        df_matchs = traiter_matchs(
-            matchs_raw, filtre_circuit, filtre_statut
-        )
+        df_matchs = traiter_matchs(matchs_raw, filtre_circuit, filtre_statut)
 
         if df_matchs.empty:
-            st.warning(
-                "⚠️ Aucun match trouvé. "
-                "Essaie une autre date ou un autre filtre."
-            )
+            st.warning("⚠️ Aucun match trouvé. Essaie une autre date ou un autre filtre.")
             return
 
-        # ── Résumé ──
         total    = len(df_matchs)
-        termines = len(df_matchs[
-            df_matchs['statut_low'] == 'finished'
-        ])
-        en_cours = len(df_matchs[
-            df_matchs['statut_low'].isin(['inprogress','live'])
-        ])
+        termines = len(df_matchs[df_matchs['statut_low'] == 'finished'])
+        en_cours = len(df_matchs[df_matchs['statut_low'].isin(['inprogress','live'])])
         a_venir  = total - termines - en_cours
 
         c1, c2, c3, c4 = st.columns(4)
@@ -176,7 +148,6 @@ def page_matchs_jour(modeles, df_base):
 
         st.markdown("---")
 
-        # ── Prédiction automatique tous les matchs ──
         if predire_tous:
             st.subheader("⚡ Prédictions automatiques")
             from modules.prediction import predire_match
@@ -188,25 +159,17 @@ def page_matchs_jour(modeles, df_base):
             if a_predire.empty:
                 st.info("Aucun match à venir à prédire.")
             else:
-                barre    = st.progress(0)
+                barre     = st.progress(0)
                 resultats = []
 
-                for i, (_, match) in enumerate(
-                    a_predire.iterrows()
-                ):
-                    j_a = match['Joueur A']
-                    j_b = match['Joueur B']
-
-                    # Détecte le circuit
+                for i, (_, match) in enumerate(a_predire.iterrows()):
+                    j_a  = match['Joueur A']
+                    j_b  = match['Joueur B']
                     circ = match['Circuit'].upper()
-                    if 'WTA' in circ:
-                        t = 'WTA'
-                    elif 'CHALLENGER' in circ:
-                        t = 'Challenger'
-                    elif 'ITF' in circ:
-                        t = 'ITF'
-                    else:
-                        t = 'ATP'
+                    if 'WTA' in circ:          t = 'WTA'
+                    elif 'CHALLENGER' in circ: t = 'Challenger'
+                    elif 'ITF' in circ:        t = 'ITF'
+                    else:                      t = 'ATP'
 
                     try:
                         res = predire_match(
@@ -238,16 +201,9 @@ def page_matchs_jour(modeles, df_base):
                     barre.progress((i+1) / len(a_predire))
 
                 df_res = pd.DataFrame(resultats)
-                st.success(
-                    f"✅ {len(df_res)} prédictions calculées !"
-                )
-                st.dataframe(
-                    df_res,
-                    hide_index=True,
-                    width='stretch'
-                )
+                st.success(f"✅ {len(df_res)} prédictions calculées !")
+                st.dataframe(df_res, hide_index=True, use_container_width=True)
 
-                # Export
                 csv = df_res.to_csv(index=False)
                 st.download_button(
                     "⬇️ Télécharger CSV",
@@ -258,79 +214,45 @@ def page_matchs_jour(modeles, df_base):
 
             st.markdown("---")
 
-        # ── Tableau des matchs ──
-        st.subheader(f"📋 {total} matchs — {date_str}")
-
-        # Ajoute colonne statut emoji
         def emoji_statut(s):
             s = str(s).lower()
-            if s == 'finished':    return '✅'
-            if s in ['inprogress','live']: return '🔴'
+            if s == 'finished':                   return '✅'
+            if s in ['inprogress', 'live']:        return '🔴'
             return '⏳'
 
+        st.subheader(f"📋 {total} matchs — {date_str}")
         df_affich = df_matchs[[
             'Heure','Joueur A','Joueur B',
             'Tournoi','Circuit','Round','Score','Statut'
         ]].copy()
-        df_affich.insert(
-            0, '.',
-            df_matchs['statut_low'].apply(emoji_statut)
-        )
+        df_affich.insert(0, '.', df_matchs['statut_low'].apply(emoji_statut))
 
-        st.dataframe(
-            df_affich,
-            hide_index=True,
-            width='stretch',
-            height=400
-        )
+        st.dataframe(df_affich, hide_index=True, use_container_width=True, height=400)
 
         st.markdown("---")
 
-        # ── Prédiction individuelle ──
         st.subheader("🔮 Prédire un match individuel")
-        st.caption(
-            "Sélectionne un match dans la liste pour le prédire"
-        )
-
         options_matchs = [
-            f"{row['Joueur A']} vs {row['Joueur B']} "
-            f"— {row['Tournoi']}"
+            f"{row['Joueur A']} vs {row['Joueur B']} — {row['Tournoi']}"
             for _, row in df_matchs.iterrows()
         ]
 
-        match_choisi = st.selectbox(
-            "Sélectionne un match",
-            options_matchs,
-            key="match_individuel"
-        )
+        match_choisi = st.selectbox("Sélectionne un match", options_matchs, key="match_individuel")
 
         col_s1, col_s2 = st.columns(2)
         with col_s1:
-            surface_ind = st.selectbox(
-                "Surface",
-                ["Hard","Clay","Grass","Carpet"],
-                key="surf_ind"
-            )
+            surface_ind = st.selectbox("Surface", ["Hard","Clay","Grass","Carpet"], key="surf_ind")
         with col_s2:
-            best_of_ind = st.selectbox(
-                "Format",
-                [3, 5],
-                format_func=lambda x: f"Best of {x}",
-                key="bo_ind"
-            )
+            best_of_ind = st.selectbox("Format", [3, 5], format_func=lambda x: f"Best of {x}", key="bo_ind")
 
-        if st.button(
-            "🔮 Prédire ce match",
-            type="primary",
-            width='stretch'
-        ):
+        if st.button("🔮 Prédire ce match", type="primary"):
             idx   = options_matchs.index(match_choisi)
             match = df_matchs.iloc[idx]
             j_a   = match['Joueur A']
             j_b   = match['Joueur B']
 
-            circ  = match['Circuit'].upper()
-            if 'WTA' in circ:         t = 'WTA'
+            circ = match['Circuit'].upper()
+            if 'WTA' in circ:          t = 'WTA'
             elif 'CHALLENGER' in circ: t = 'Challenger'
             elif 'ITF' in circ:        t = 'ITF'
             else:                      t = 'ATP'
@@ -351,61 +273,27 @@ def page_matchs_jour(modeles, df_base):
 
                     c1, c2, c3, c4 = st.columns(4)
                     with c1:
-                        st.metric(
-                            "🏆 Vainqueur",
-                            res['vainqueur'],
-                            f"{res['proba_v']}%"
-                        )
+                        st.metric("🏆 Vainqueur", res['vainqueur'], f"{res['proba_v']}%")
                     with c2:
                         st.metric("🎯 Score", res['score_exact'])
                     with c3:
                         st.metric("🔢 Sets", f"{res['nb_sets']} sets")
                     with c4:
-                        st.metric(
-                            "⚖️ Handicap",
-                            f"{res['handicap']} set(s)"
-                        )
+                        st.metric("⚖️ Handicap", f"{res['handicap']} set(s)")
 
-                    # Stats comparées
                     stats = pd.DataFrame({
-                        'Statistique' : [
-                            'ELO général',
-                            f'ELO {surface_ind}',
-                            'Forme récente',
-                            'H2H',
-                            'Classement',
-                        ],
-                        j_a : [
-                            res['elo_a'],
-                            res['elo_a_surf'],
-                            f"{res['forme_a']}%",
-                            res['h2h_a'],
-                            f"#{res['rank_a']}",
-                        ],
-                        j_b : [
-                            res['elo_b'],
-                            res['elo_b_surf'],
-                            f"{res['forme_b']}%",
-                            res['h2h_b'],
-                            f"#{res['rank_b']}",
-                        ],
+                        'Statistique' : ['ELO général', f'ELO {surface_ind}', 'Forme récente', 'H2H', 'Classement'],
+                        j_a : [res['elo_a'], res['elo_a_surf'], f"{res['forme_a']}%", res['h2h_a'], f"#{res['rank_a']}"],
+                        j_b : [res['elo_b'], res['elo_b_surf'], f"{res['forme_b']}%", res['h2h_b'], f"#{res['rank_b']}"],
                     })
-                    st.dataframe(
-                        stats,
-                        hide_index=True,
-                        width='stretch'
-                    )
+                    st.dataframe(stats, hide_index=True, use_container_width=True)
 
-                    # Probabilités
                     import plotly.graph_objects as go
                     fig = go.Figure(go.Bar(
                         x=[j_a, j_b],
                         y=[res['proba_a'], res['proba_b']],
                         marker_color=['#2d9e56','#FF5722'],
-                        text=[
-                            f"{res['proba_a']}%",
-                            f"{res['proba_b']}%"
-                        ],
+                        text=[f"{res['proba_a']}%", f"{res['proba_b']}%"],
                         textposition='auto',
                     ))
                     fig.update_layout(
@@ -415,27 +303,7 @@ def page_matchs_jour(modeles, df_base):
                         font=dict(color='white'),
                         margin=dict(t=10)
                     )
-                    st.plotly_chart(fig, width='stretch')
+                    st.plotly_chart(fig, use_container_width=True)
 
                 except Exception as e:
-                    st.error(f"❌ Erreur prédiction : {e}")
-
-    else:
-        # Page d'accueil
-        st.info(
-            "👆 Clique sur **Charger** pour voir les matchs "
-            "ou **Prédire TOUS** pour une prédiction automatique !"
-        )
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            if st.button("📅 Aujourd'hui", width='stretch'):
-                st.session_state['auto_charger'] = True
-                st.rerun()
-        with c2:
-            if st.button("📅 Demain", width='stretch'):
-                st.session_state['auto_charger'] = True
-                st.rerun()
-        with c3:
-            if st.button("📅 Hier", width='stretch'):
-                st.session_state['auto_charger'] = True
-                st.rerun()
+                    st.error(f"❌ Erreur : {e}")
