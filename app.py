@@ -234,6 +234,9 @@ def charger_base():
     chemin = os.path.join(
         os.path.dirname(__file__), 'data', 'BASE_FEATURES.csv'
     )
+    # Si le fichier n'existe pas (ex: HuggingFace sans CSV), on retourne None
+    if not os.path.exists(chemin):
+        return None
     return pd.read_csv(chemin, low_memory=False)
 
 # ============================================================
@@ -244,9 +247,11 @@ with st.spinner("⏳ Chargement de Tennis IA..."):
         modeles = charger_modeles()
         df_base = charger_base()
         CHARGE  = True
+        CSV_DISPO = df_base is not None
     except Exception as e:
         st.error(f"❌ Erreur : {e}")
         CHARGE  = False
+        CSV_DISPO = False
 
 # ============================================================
 # HEADER PRINCIPAL
@@ -284,6 +289,10 @@ if CHARGE:
         )
     with col5:
         st.metric("📊 Matchs analysés", "830 906")
+
+    # Avertissement si CSV absent
+    if not CSV_DISPO:
+        st.warning("⚠️ BASE_FEATURES.csv non disponible — certaines fonctionnalités sont limitées.")
 
     st.markdown("---")
 
