@@ -3,6 +3,8 @@ data/BASE_FEATURES.csv
 
 # Clés secrètes
 .env
+data/firebase_key.json
+Data/firebase_key.json
 
 # Python
 __pycache__/
